@@ -1,0 +1,12 @@
+# Any local data
+/local
+
+#Any virtual environments
+/venv
+venv/
+/venv2
+venv2/
+
+# Data
+/Data
+Data/
