@@ -19,8 +19,8 @@ Experiments included:
 - Placeholder for experiment description 4  
 
 ## How to set up environment and download data  
-To set up work environment, user must operate on python3.10.5, which can be set up in the local environment by command:
- 1. `py -3.10 -m venv myevn`    
+To set up work environment, user should go through the following commands:  
+ 1. Set up the local environment (best with python 3.10.5): `py -3.10 -m venv myevn`    
  2. Then, activate the environment: `.\myenv\Scripts\activate`  
  3. Install all requirements: `pip install -r requirements.txt`
  4. Download raw data through script from kaggle: `.\myenv\Scripts\python \data_downlader_script.py` 
