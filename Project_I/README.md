@@ -26,3 +26,7 @@ To set up work environment, user should go through the following commands:
  4. Download raw data through script from kaggle: `.\myenv\Scripts\python \data_downlader_script.py` 
  5. Run data transformation (at best keep the arguments like in the example): `.\myenv\Scripts\python .\data_transformer_script.py --format npy --output_dir Data/Data_converted`
  6. In the file `MainEvaluation.ipynb` run all the cells/modify and make custom changes to get the desired results
+
+ ### Models saving/loading
+ Because the overall training is demanding if comes to computational cost. All the trained models are saved (and should be saved) into the **Models_Pytorch_saved** in the *.pth* extention
+ and into the **Models_Pickled** into the *.pkl* format, so that they can be later easily loaded for evaluation.
