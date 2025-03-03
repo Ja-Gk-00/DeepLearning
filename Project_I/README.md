@@ -7,9 +7,9 @@ based on their respective articles, as well as on our own suggested architecture
 The architectures that were comprehensly evaluated include:
 - Basic CNN architecture (our own pytorch architecture)
 - Optimal CNN architecture (our own pytorch architecture)
-- ResNet [https://link.springer.com/chapter/10.1007/978-1-4842-6168-2_6](Reference to ResNet paper)  
-- DenseNet [https://ieeexplore.ieee.org/abstract/document/8296389](Reference to DenseNet paper)  
-- EfficientNet [https://link.springer.com/chapter/10.1007/978-1-4842-6168-2_10](Reference to EfficientNet paper)  
+- ResNet [https://link.springer.com/chapter/10.1007/978-1-4842-6168-2_6] (Reference to ResNet paper)  
+- DenseNet [https://ieeexplore.ieee.org/abstract/document/8296389] (Reference to DenseNet paper)  
+- EfficientNet [https://link.springer.com/chapter/10.1007/978-1-4842-6168-2_10] (Reference to EfficientNet paper)  
 - Placeholder for possibly more architectures if there is time!  
 
 Experiments included:
