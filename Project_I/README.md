@@ -60,4 +60,15 @@ To add custom augmentations, user must add a function into the *data_augmentatio
 @register_augmentation("my_augmentation_function")
 def my_augmentation_function(image: Image.Image) -> Image.Image:
     pass
-```
+```  
+
+Currently implemented data augmentation techniques include:
+ - Image rotation (named in config = "rotation")  
+ - Horizontal flip of an image (named in config = "horizontal_flip")  
+ - Adding Gaussian noise to the image (named in config = "gaussian_noise")  
+ - Changing brightness of an image (named in config = "brightness")
+ - Performing autoaugmentation (named in config = "autoaugment")  
+ - Performing cutmix transformation (named in config = "cutmix")
+ - Performing tileswap (dividing the grid onto n subgrids and swapping m of the grids) (named in config = "tileswap")
+
+ 
