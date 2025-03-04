@@ -52,7 +52,7 @@ To set up work environment, user should go through the following commands:
         args:
             factor: 1.2
             portion: 0.3
-    ```
+```
 Where global arguments are constant and most of them self-explanatory (prefix is the prefix of the newly created files).  
 *Augmentation* argument is the name of the augmentation that is to be run and *args* are the arguments for the augmentation itself.  
 To add custom augmentations, user must add a function into the *data_augmentation_script.py* with the decroator:  
