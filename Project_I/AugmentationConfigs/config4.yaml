@@ -1,0 +1,11 @@
+global:
+  input_dir: "Data/Data_raw"
+  output_dir: "Data/Data_augmented"
+  prefix: "aug_brightness"
+  input_format: "png"
+  output_format: "png"
+augmentations:
+  - augmentation: brightness
+    args:
+      factor: 1.2
+    portion: 0.3

@@ -1,0 +1,12 @@
+global:
+  input_dir: "Data/Data_raw"
+  output_dir: "Data/Data_augmented"
+  prefix: "aug_gaussian"
+  input_format: "png"
+  output_format: "png"
+augmentations:
+  - augmentation: gaussian_noise
+    args:
+      mean: 0
+      std: 15
+    portion: 0.3

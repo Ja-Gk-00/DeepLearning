@@ -1,0 +1,11 @@
+global:
+  input_dir: "Data/Data_raw"
+  output_dir: "Data/Data_augmented"
+  prefix: "aug_cutmix"
+  input_format: "png"
+  output_format: "png"
+augmentations:
+  - augmentation: cutmix
+    args:
+      beta: 1.0
+    portion: 0.3

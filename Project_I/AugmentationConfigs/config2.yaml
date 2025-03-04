@@ -1,0 +1,10 @@
+global:
+  input_dir: "Data/Data_raw"
+  output_dir: "Data/Data_augmented"
+  prefix: "aug_horizontal"
+  input_format: "png"
+  output_format: "png"
+augmentations:
+  - augmentation: horizontal_flip
+    args: {}
+    portion: 0.2
