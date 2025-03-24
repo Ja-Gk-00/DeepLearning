@@ -3,7 +3,7 @@ import torch.nn as nn
 import pickle
 
 class OptimalCNN(nn.Module):
-    def __init__(self, num_classes: int = 10, in_channels: int = 1) -> None:
+    def __init__(self, num_classes: int = 10, in_channels: int = 1, dropout_chance: float = 0.2) -> None:
         super(OptimalCNN, self).__init__()
         # Block 1: Input 32x32 -> Output 16x16
         self.block1 = nn.Sequential(
@@ -40,7 +40,7 @@ class OptimalCNN(nn.Module):
             nn.Linear(256 * 4 * 4, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
+            nn.Dropout(dropout_chance),
             nn.Linear(512, num_classes)
         )
 
