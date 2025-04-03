@@ -48,10 +48,10 @@ class _Transition(nn.Module):
         return x
 
 class DenseNet(nn.Module):
-    def __init__(self, growth_rate: int = 12, block_config: List[int] = [16, 16, 16], num_init_features: int = 24, bn_size: int = 4, drop_rate: float = 0.0, num_classes: int = 10) -> None:
+    def __init__(self, growth_rate: int = 12, block_config: List[int] = [16, 16, 16], num_init_features: int = 24, bn_size: int = 4, drop_rate: float = 0.1, num_classes: int = 10) -> None:
         super(DenseNet, self).__init__()
         self.features: nn.Sequential = nn.Sequential(
-            nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv2d(1, num_init_features, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(num_init_features),
             nn.ReLU(inplace=True)
         )
@@ -90,3 +90,44 @@ class DenseNetCreator:
 
     def create(self) -> DenseNet:
         return DenseNet(growth_rate=self.growth_rate, block_config=self.block_config, num_init_features=self.num_init_features, bn_size=self.bn_size, drop_rate=self.drop_rate, num_classes=self.num_classes)
+
+
+def DenseNet121(num_classes: int = 10, in_channels: int = 3) -> DenseNet:
+    return DenseNet(
+        growth_rate=32, 
+        block_config=[6, 12, 24, 16], 
+        num_init_features=64, 
+        bn_size=4, 
+        drop_rate=0.1, 
+        num_classes=num_classes
+    )
+
+def DenseNet169(num_classes: int = 10, in_channels: int = 3) -> DenseNet:
+    return DenseNet(
+        growth_rate=32, 
+        block_config=[6, 12, 32, 32], 
+        num_init_features=64, 
+        bn_size=4, 
+        drop_rate=0.1, 
+        num_classes=num_classes
+    )
+
+def DenseNet201(num_classes: int = 10, in_channels: int = 3) -> DenseNet:
+    return DenseNet(
+        growth_rate=32, 
+        block_config=[6, 12, 48, 32], 
+        num_init_features=64, 
+        bn_size=4, 
+        drop_rate=0.1, 
+        num_classes=num_classes
+    )
+
+def DenseNet161(num_classes: int = 10, in_channels: int = 3) -> DenseNet:
+    return DenseNet(
+        growth_rate=48, 
+        block_config=[6, 12, 36, 24], 
+        num_init_features=96, 
+        bn_size=4, 
+        drop_rate=0.1, 
+        num_classes=num_classes
+    )

@@ -3,7 +3,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 
-from ..DataObjects import DataLoader
+from DataObjects import DataLoader
 from typing import Optional, Tuple
 
 def train_model(model: nn.Module, train_loader: DataLoader, val_loader: DataLoader,

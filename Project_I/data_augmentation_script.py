@@ -179,7 +179,7 @@ def process_file(file_path: str, input_dir: str, output_dir: str, prefix: str, c
     
         new_filename, ext = os.path.splitext(file_name)
         new_filename = f"{prefix}_{aug_name}_{new_filename}{ext}"
-        out_dir = os.path.join(output_dir, file_dir)
+        out_dir = os.path.join(output_dir, aug_name, file_dir)
         os.makedirs(out_dir, exist_ok=True)
         save_path = os.path.join(out_dir, new_filename)
         save_image(augmented_image, save_path, output_format)

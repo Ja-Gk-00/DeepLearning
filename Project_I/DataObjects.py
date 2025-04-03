@@ -79,5 +79,11 @@ class DataLoader:
                 batch_labels: torch.Tensor = torch.tensor(labels_list, dtype=torch.long)
                 yield DataBatch(batch_data, batch_labels)
 
+    def __add__(self, other: "DataLoader") -> "DataLoader":
+        new_loader = DataLoader(self.data_dir, self.batch_size, self.shuffle, self.convert_mode, self.max_per_class)
+        new_loader.samples = self.samples + other.samples
+        new_loader.class_to_idx = self.class_to_idx
+        return new_loader
+
     def __len__(self) -> int:
         return (len(self.samples) + self.batch_size - 1) // self.batch_size
