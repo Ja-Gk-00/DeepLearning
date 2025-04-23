@@ -1,0 +1,20 @@
+# Core numeric/audio libs
+numpy==2.2.5
+scipy==1.15.2
+librosa==0.11.0
+
+# PyTorch and dependencies
+torch==2.7.0+cu126
+torchaudio==2.7.0+cu126
+torchvision==0.22.0+cu126
+# (if you need audio I/O via torch, you can add torchaudio:
+# torchaudio==0.13.1)
+
+# Progress bar
+tqdm==4.67.1
+
+# Metrics
+scikit-learn==1.6.1
+
+# Scattering transform
+kymatio==0.3.0
