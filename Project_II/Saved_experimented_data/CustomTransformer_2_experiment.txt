@@ -1,0 +1,2 @@
+Epoch 1/1 - train loss: 1.9396 - train accuracy: 0.4238
+Epoch 1/1 - val   loss: 1.3137 - val   accuracy: 0.6058

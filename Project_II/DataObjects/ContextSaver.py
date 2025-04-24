@@ -1,5 +1,6 @@
 from io import StringIO
 import sys
+from pathlib import Path
 
 class Capturing:
     """
@@ -27,7 +28,9 @@ class Capturing:
         text = self._stringio.getvalue()
         self.output_lines.extend(text.splitlines())
         # Write to log file
-        with open(self.log_path, 'w') as f:
+        file = Path(self.log_path)
+        file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.log_path, 'a+') as f:
             f.write(text)
         sys.stdout = self._stdout
         del self._stringio

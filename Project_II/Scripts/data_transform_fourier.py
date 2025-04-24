@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
-Script to convert WAV audio files into FFT-based frequency distributions and save them as .npz files.
+Script to convert WAV audio files into fixed-shape FFT feature arrays and save them as .npy files.
 
 Usage:
     python transform_to_fft.py \
         --input_dir /path/to/raw_partitioned \
-        --output_dir /path/to/fft_outputs \
+        --output_dir /path/to/fft_features \
         [--sr 16000] \
-        [--n_fft None] \
+        [--max_length 16000] \
         [--verbose]
 
-Each output .npz contains two arrays:
-  - freq: frequency bins (Hz)
-  - magnitude: corresponding magnitude of the FFT
+This script pads or trims each audio to `max_length` samples, computes the real FFT,
+separates real and imaginary parts, and ensures a consistent feature length across all files.
 """
 import argparse
 from pathlib import Path
@@ -21,31 +20,31 @@ import librosa
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Convert WAV files to FFT-based frequency distributions (.npz)"
+        description="Convert WAV files to fixed-shape FFT .npy files"
     )
     parser.add_argument(
         '--input_dir', '-i',
         type=Path,
         required=True,
-        help='Directory with partitioned WAV files (training/validation/testing)'
+        help='Path to input directory containing partitioned WAV files'
     )
     parser.add_argument(
         '--output_dir', '-o',
         type=Path,
         required=True,
-        help='Directory where FFT outputs will be saved'
+        help='Path to output directory where FFT arrays will be saved'
     )
     parser.add_argument(
         '--sr',
         type=int,
         default=16000,
-        help='Sampling rate for loading audio (default: 16000)'
+        help='Sampling rate for audio loading (default: 16000)'
     )
     parser.add_argument(
-        '--n_fft',
+        '--max_length',
         type=int,
         default=None,
-        help='FFT size (default: signal length)'
+        help='Fixed length (in samples) to pad/trim audio (default: sr)'
     )
     parser.add_argument(
         '--verbose', '-v',
@@ -55,18 +54,32 @@ def parse_args():
     )
     return parser.parse_args()
 
-def process_file(wav_path: Path, out_path: Path, sr: int, n_fft: int):
-    # Load audio
-    y, _ = librosa.load(wav_path, sr=sr)
-    # Determine FFT length
-    n = n_fft if n_fft is not None else len(y)
+
+def process_file(
+    wav_path: Path,
+    fft_path: Path,
+    sr: int,
+    max_length: int,
+    verbose: bool
+):
+    # Load and fix audio length
+    y, _ = librosa.load(str(wav_path), sr=sr)
+    length = max_length or sr
+    y = librosa.util.fix_length(y, size=length)
+
     # Compute real FFT
-    fft_vals = np.fft.rfft(y, n=n)
-    magnitude = np.abs(fft_vals)
-    # Frequency bins
-    freq = np.fft.rfftfreq(n, d=1.0/sr)
-    # Save both arrays in a compressed npz
-    np.savez(out_path.with_suffix('.npz'), freq=freq, magnitude=magnitude)
+    Y = np.fft.rfft(y)
+    # Separate real and imaginary parts
+    real = Y.real.astype(np.float32)
+    imag = Y.imag.astype(np.float32)
+    # Stack to shape (2, freq_bins)
+    features = np.stack([real, imag], axis=0)
+
+    # Save as .npy
+    out_file = fft_path.with_suffix('.npy')
+    np.save(str(out_file), features)
+    if verbose:
+        print(f"Saved FFT features {out_file} shape={features.shape}")
 
 
 def main():
@@ -74,28 +87,30 @@ def main():
     input_dir = args.input_dir
     output_dir = args.output_dir
     sr = args.sr
-    n_fft = args.n_fft
+    max_length = args.max_length or sr
     verbose = args.verbose
 
-    # Walk through splits and labels
-    for split in ['training', 'validation', 'testing']:
-        split_in = input_dir / split
-        split_out = output_dir / split
-        for label_dir in split_in.iterdir():
-            if label_dir.is_dir():
-                label_out = split_out / label_dir.name
-                label_out.mkdir(parents=True, exist_ok=True)
-                # Process each wav file
-                for wav_file in label_dir.glob('*.wav'):
-                    out_file = label_out / wav_file.name
-                    if verbose:
-                        print(f"FFT processing {wav_file} -> {out_file.with_suffix('.npz')}")
-                    try:
-                        process_file(wav_file, out_file, sr, n_fft)
-                    except Exception as e:
-                        print(f"Error processing {wav_file}: {e}")
-
-    print("FFT extraction complete.")
+    # Process splits if they exist
+    splits = ['training', 'validation', 'testing']
+    for split in splits:
+        in_split = input_dir / split
+        out_split = output_dir / split
+        if not in_split.exists():
+            continue
+        for label_dir in in_split.iterdir():
+            if not label_dir.is_dir():
+                continue
+            out_label = out_split / label_dir.name
+            out_label.mkdir(parents=True, exist_ok=True)
+            for wav_file in label_dir.glob('*.wav'):
+                process_file(
+                    wav_file,
+                    out_label / wav_file.name,
+                    sr,
+                    max_length,
+                    verbose
+                )
+    print("FFT feature extraction complete.")
 
 if __name__ == '__main__':
     main()

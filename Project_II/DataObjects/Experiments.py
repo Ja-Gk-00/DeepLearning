@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
-from DataLoader import DataLoader
-from ..Architectures.Transformer.CustomTransformer import CustomTransformerModel
-from ..Architectures.Transformer.GPT2 import GPT2FineTuner
-from ..Architectures.CNN.SimpleCNN import SimpleCNN
-from ..Architectures.Statistical.GMM import GMMClassifier
-from ContextSaver import Capturing
+from DataObjects.DataLoader import DataLoader
+from Architectures.Transformer.CustomTransformer import CustomTransformerModel
+from Architectures.Transformer.GPT2 import GPT2FineTuner
+from Architectures.CNN.SimpleCNN import SimpleCNN
+from Architectures.Statistical.GMM import GMMClassifier
+from DataObjects.ContextSaver import Capturing
 
 class Experiment(ABC):
     @abstractmethod
@@ -69,7 +69,7 @@ class TransformerExperiment(BaseExperiment):
         model = CustomTransformerModel(input_dim=input_dim, **model_kwargs)
 
         with Capturing(self.params.get('save_path', "log.txt")) as logs:
-            model.train(train_loader, epochs=epochs, val_loader=val_loader)
+            model.train_architecture(train_loader, epochs=epochs, val_loader=val_loader)
             results = model.evaluate(test_loader) if test_loader else {}
             if 'summary' in results:
                 results['score'] = results['summary'].get('accuracy')
@@ -110,7 +110,7 @@ class GPT2Experiment(BaseExperiment):
         model = GPT2FineTuner(audio_dim=audio_dim, **model_kwargs)
         # Train & optionally validate
         with Capturing(self.params.get('save_path', "log.txt")) as logs:
-            model.train(train_loader, epochs=epochs, val_loader=val_loader)
+            model.train_architecture(train_loader, epochs=epochs, val_loader=val_loader)
             results = model.evaluate(test_loader) if test_loader else {}
             # Ray Tune score
             if 'summary' in results:
@@ -151,7 +151,7 @@ class CNNExperiment(BaseExperiment):
         model = SimpleCNN(in_channels=in_channels, **model_kwargs)
         # Train & optionally validate
         with Capturing(self.params.get('save_path', "log.txt")) as logs:
-            model.train(train_loader, epochs=epochs, val_loader=val_loader)
+            model.train_architecture(train_loader, epochs=epochs, val_loader=val_loader)
             results = model.evaluate(test_loader) if test_loader else {}
             # Ray Tune score
             if 'summary' in results:
@@ -188,7 +188,7 @@ class GMMExperiment(BaseExperiment):
         # Instantiate and train
         model = GMMClassifier(**model_kwargs)
         with Capturing(self.params.get('save_path', "log.txt")) as logs:
-            model.train(train_loader, val_loader=val_loader)
+            model.train_architecture(train_loader, val_loader=val_loader)
             results = model.evaluate(test_loader) if test_loader else {}
             # Ray Tune score
             if 'summary' in results:
