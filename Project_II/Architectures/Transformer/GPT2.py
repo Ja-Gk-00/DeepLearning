@@ -6,6 +6,7 @@ from typing import Any, Dict, Tuple, List, Optional, Type
 from tqdm import tqdm
 from sklearn.metrics import precision_score, recall_score, f1_score
 from transformers import GPT2Config, GPT2Model
+from ray.air import session
 
 from ..AbstractModel import BaseModel
 from DataObjects.DataLoader import DataLoader
@@ -136,6 +137,10 @@ class GPT2FineTuner(BaseModel, nn.Module):
                     f"- val rec: {s['recall']:.4f} "
                     f"- val f1: {s['f1']:.4f}"
                 )
+
+                # Only report to Ray Tune if it is active
+                if session.get_session():
+                    session.report({"accuracy": s["accuracy"]})
 
     def evaluate(
         self,
