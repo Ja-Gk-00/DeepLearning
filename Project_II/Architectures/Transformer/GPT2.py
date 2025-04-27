@@ -4,7 +4,7 @@ import torch.optim as optim
 from typing import Any, Dict, Tuple, List, Optional, Type
 
 from tqdm import tqdm
-from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 from transformers import GPT2Config, GPT2Model
 from ray.air import session
 
@@ -195,6 +195,7 @@ class GPT2FineTuner(BaseModel, nn.Module):
             f1 = f1_score(trues, preds, average='macro', zero_division=0)
             metrics_history.append({'loss': loss, 'accuracy': acc, 'precision': pr, 'recall': rc, 'f1': f1})
 
+        cm = confusion_matrix(trues_all, preds_all)
         summary = {
             'loss': total_loss / total_samples,
             'accuracy': (torch.tensor(preds_all) == torch.tensor(trues_all)).float().mean().item(),
@@ -202,7 +203,7 @@ class GPT2FineTuner(BaseModel, nn.Module):
             'recall': recall_score(trues_all, preds_all, average='macro', zero_division=0),
             'f1': f1_score(trues_all, preds_all, average='macro', zero_division=0)
         }
-        return {'metrics_history': metrics_history, 'summary': summary}
+        return {'metrics_history': metrics_history, 'summary': summary, 'confusion_matrix': cm}
 
     def predict(
         self,
