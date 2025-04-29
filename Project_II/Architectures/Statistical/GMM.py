@@ -4,7 +4,13 @@ from typing import Any, Dict, List, Tuple, Optional, Type
 
 import numpy as np
 from sklearn.mixture import GaussianMixture
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix
+)
 
 from ..AbstractModel import BaseModel
 from DataObjects.DataLoader import DataLoader
@@ -81,48 +87,64 @@ class GMMClassifier(BaseModel):
             )
 
     def evaluate(
-        self,
-        eval_loader: DataLoader
-    ) -> Dict[str, Any]:
-
+    self,
+    eval_loader: DataLoader
+) -> Dict[str, Any]:
         preds_all: List[int] = []
         trues_all: List[int] = []
         metrics_history: List[Dict[str, float]] = []
 
         for batch in eval_loader:
-            arrs = batch.data.numpy()
+            arrs   = batch.data.numpy()
             labels = batch.labels.numpy()
-            batch_preds = []
+            batch_preds: List[int] = []
+
+            # per-sample scoring
             for x, y in zip(arrs, labels):
-                vec = x.flatten()[None, :]
-                # compute log-likelihood for each class GMM
+                vec    = x.flatten()[None, :]
                 scores = {cls: model.score(vec) for cls, model in self.models.items()}
-                # choose class with highest likelihood
-                pred = max(scores, key=scores.get)
+                pred   = max(scores, key=scores.get)
                 batch_preds.append(pred)
+
+            # per-batch metrics
             acc = accuracy_score(labels, batch_preds)
-            pr = precision_score(labels, batch_preds, average='macro', zero_division=0)
-            rc = recall_score(labels, batch_preds, average='macro', zero_division=0)
-            f1 = f1_score(labels, batch_preds, average='macro', zero_division=0)
-            batch_loss = -np.mean([self.models[p].score(x.flatten()[None, :]) for p, x in zip(batch_preds, arrs)])
+            pr  = precision_score(labels, batch_preds, average='macro', zero_division=0)
+            rc  = recall_score(labels, batch_preds, average='macro', zero_division=0)
+            f1  = f1_score(labels, batch_preds, average='macro', zero_division=0)
+            # negative log-likelihood proxy as “loss”
+            batch_loss = -np.mean([
+                self.models[p].score(x.flatten()[None, :])
+                for p, x in zip(batch_preds, arrs)
+            ])
+
             metrics_history.append({
-                'loss': batch_loss,
-                'accuracy': acc,
+                'loss':      batch_loss,
+                'accuracy':  acc,
                 'precision': pr,
-                'recall': rc,
-                'f1': f1
+                'recall':    rc,
+                'f1':        f1
             })
+
             preds_all.extend(batch_preds)
             trues_all.extend(labels.tolist())
-        # summary
+
+        # overall summary
         summary = {
-            'loss': np.mean([m['loss'] for m in metrics_history]),
-            'accuracy': accuracy_score(trues_all, preds_all),
+            'loss':      np.mean([m['loss'] for m in metrics_history]),
+            'accuracy':  accuracy_score(trues_all, preds_all),
             'precision': precision_score(trues_all, preds_all, average='macro', zero_division=0),
-            'recall': recall_score(trues_all, preds_all, average='macro', zero_division=0),
-            'f1': f1_score(trues_all, preds_all, average='macro', zero_division=0)
+            'recall':    recall_score(trues_all, preds_all, average='macro', zero_division=0),
+            'f1':        f1_score(trues_all, preds_all, average='macro', zero_division=0)
         }
-        return {'metrics_history': metrics_history, 'summary': summary}
+
+        # compute confusion matrix
+        cm = confusion_matrix(trues_all, preds_all)
+
+        return {
+            'metrics_history':  metrics_history,
+            'summary':          summary,
+            'confusion_matrix': cm
+        }
 
     def predict(
         self,

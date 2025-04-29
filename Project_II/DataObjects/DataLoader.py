@@ -44,20 +44,10 @@ class DataLoader:
         shuffle: bool = True,
         sr: int = 16000,
         max_per_class: Optional[int] = None,
-        subset: Optional[List[str]] = None
+        subset: Optional[List[str]] = None,
+        fft_reduced_bins: int = 128,
+        min_samples_per_class: int = 64
     ) -> None:
-        """
-        DataLoader for various precomputed audio features, with optional label filtering.
-
-        Args:
-            data_dir: root directory with subfolders per class
-            data_type: one of ['raw','spectrogram','mfcc','fft','moving','scattering']
-            batch_size: samples per batch
-            shuffle: whether to shuffle at each epoch
-            sr: sample rate for 'raw' type
-            max_per_class: limit number of samples per class
-            subset: list of class names to include (default None = all)
-        """
         self.data_dir = data_dir
         self.data_type = data_type
         self.batch_size = batch_size
@@ -65,65 +55,73 @@ class DataLoader:
         self.sr = sr
         self.max_per_class = max_per_class
         self.subset = subset
+        self.fft_reduced_bins = fft_reduced_bins
+        self.min_samples_per_class = min_samples_per_class
         self.samples: List[Tuple[str, int]] = []
         self.class_to_idx = {}
         self._prepare_dataset()
 
     def _prepare_dataset(self) -> None:
-        """
-        Scan subdirectories, mapping class names to indices and
-        collecting file paths matching the data_type and optional subset.
-        """
-        # identify all classes
         all_classes = sorted([
             d for d in os.listdir(self.data_dir)
             if os.path.isdir(os.path.join(self.data_dir, d))
         ])
-        # filter by subset if provided
         if self.subset:
             classes = [c for c in all_classes if c in self.subset]
         else:
             classes = all_classes
         self.class_to_idx = {cls: idx for idx, cls in enumerate(classes)}
 
-        # determine valid extensions
         if self.data_type == 'raw':
             exts = ('.wav',)
-        elif self.data_type in ('spectrogram', 'mfcc'):
+        elif self.data_type in ('spectrogram', 'mfcc', 'fft'):
             exts = ('.npy',)
-        elif self.data_type in ('fft', 'moving', 'scattering'):
+        elif self.data_type in ('moving', 'scattering'):
             exts = ('.npz',)
         else:
             raise ValueError(f"Unsupported data_type '{self.data_type}'")
 
-        # collect samples
         for cls in classes:
             cls_idx = self.class_to_idx[cls]
             cls_dir = os.path.join(self.data_dir, cls)
-            count = 0
             for fname in sorted(os.listdir(cls_dir)):
                 if not fname.lower().endswith(exts):
                     continue
-                if self.max_per_class and count >= self.max_per_class:
-                    break
                 path = os.path.join(cls_dir, fname)
                 self.samples.append((path, cls_idx))
-                count += 1
+
+        # oversample to ensure at least min_samples_per_class per class
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for path, cls_idx in self.samples:
+            grouped[cls_idx].append((path, cls_idx))
+        new_samples = []
+        for cls_idx, items in grouped.items():
+            count = len(items)
+            if count < self.min_samples_per_class:
+                needed = self.min_samples_per_class - count
+                for i in range(needed):
+                    new_samples.append(items[i % count])
+            new_samples.extend(items)
+        self.samples = new_samples
 
     def __iter__(self) -> Iterator[DataBatch]:
-        """
-        Yield batches of DataBatch(data, labels).
-        """
         if self.shuffle:
             np.random.shuffle(self.samples)
-
         for start in range(0, len(self.samples), self.batch_size):
             batch = self.samples[start:start + self.batch_size]
             data_list = []
             labels_list = []
             for path, label in batch:
                 try:
-                    arr = default_loader(path, self.data_type, self.sr)
+                    if self.data_type == 'fft':
+                        fft_arr = np.load(path)
+                        mag = np.sqrt(fft_arr[0]**2 + fft_arr[1]**2)
+                        idx = np.linspace(0, mag.shape[0] - 1, self.fft_reduced_bins)
+                        mag = np.interp(idx, np.arange(mag.shape[0]), mag)
+                        arr = mag
+                    else:
+                        arr = default_loader(path, self.data_type, self.sr)
                 except Exception as e:
                     print(f"Error loading {path}: {e}")
                     continue
@@ -132,22 +130,15 @@ class DataLoader:
                     tensor = tensor.unsqueeze(0)
                 data_list.append(tensor)
                 labels_list.append(label)
-
             if data_list:
-                batch_data = torch.stack(data_list)
+                batch_data   = torch.stack(data_list)
                 batch_labels = torch.tensor(labels_list, dtype=torch.long)
                 yield DataBatch(batch_data, batch_labels)
 
     def __len__(self) -> int:
-        """
-        Number of batches per epoch.
-        """
         return (len(self.samples) + self.batch_size - 1) // self.batch_size
 
     def __add__(self, other: 'DataLoader') -> 'DataLoader':
-        """
-        Concatenate two DataLoaders with same settings.
-        """
         if self.data_dir != other.data_dir or self.data_type != other.data_type:
             raise ValueError("Cannot add DataLoaders with different data_dir or data_type")
         new = DataLoader(
@@ -157,8 +148,24 @@ class DataLoader:
             shuffle=self.shuffle,
             sr=self.sr,
             max_per_class=self.max_per_class,
-            subset=self.subset
+            subset=self.subset,
+            fft_reduced_bins=self.fft_reduced_bins,
+            min_samples_per_class=self.min_samples_per_class
         )
         new.samples = self.samples + other.samples
         new.class_to_idx = self.class_to_idx
         return new
+    
+    def __mul__(self, fraction: float) -> 'DataLoader':
+        if not 0 < fraction <= 1:
+            raise ValueError("fraction must be in (0,1]")
+        import copy, random
+        new = copy.copy(self)
+        k = int(len(self.samples) * fraction)
+        new.samples = random.sample(self.samples, k)
+        return new
+
+
+
+
+

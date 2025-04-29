@@ -4,7 +4,12 @@ import torch.optim as optim
 from typing import Any, Dict, List, Tuple, Optional, Type
 
 from tqdm import tqdm
-from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.metrics import (
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix
+)
 
 from ..AbstractModel import BaseModel
 from DataObjects.DataLoader import DataLoader
@@ -133,14 +138,13 @@ class SimpleCNN(BaseModel, nn.Module):
                 )
 
     def evaluate(
-        self,
-        eval_loader: DataLoader
-    ) -> Dict[str, Any]:
-        """
-        Evaluate on data loader, returning batch history and summary metrics.
-        """
+    self,
+    eval_loader: DataLoader
+) -> Dict[str, Any]:
+
         nn.Module.eval(self)
         criterion = nn.CrossEntropyLoss()
+
         metrics_history: List[Dict[str, float]] = []
         preds_all: List[int] = []
         trues_all: List[int] = []
@@ -165,9 +169,9 @@ class SimpleCNN(BaseModel, nn.Module):
             trues_all.extend(trues.tolist())
 
             acc = (preds == trues).mean()
-            pr = precision_score(trues, preds, average='macro', zero_division=0)
-            rc = recall_score(trues, preds, average='macro', zero_division=0)
-            f1 = f1_score(trues, preds, average='macro', zero_division=0)
+            pr  = precision_score(trues, preds, average='macro', zero_division=0)
+            rc  = recall_score(trues, preds, average='macro', zero_division=0)
+            f1  = f1_score(trues, preds, average='macro', zero_division=0)
             metrics_history.append({
                 'loss': loss,
                 'accuracy': acc,
@@ -176,14 +180,25 @@ class SimpleCNN(BaseModel, nn.Module):
                 'f1': f1
             })
 
+
         summary = {
             'loss': total_loss / total_samples,
-            'accuracy': (torch.tensor(preds_all) == torch.tensor(trues_all)).float().mean().item(),
+            'accuracy': (torch.tensor(preds_all) == torch.tensor(trues_all))
+                            .float()
+                            .mean()
+                            .item(),
             'precision': precision_score(trues_all, preds_all, average='macro', zero_division=0),
-            'recall': recall_score(trues_all, preds_all, average='macro', zero_division=0),
-            'f1': f1_score(trues_all, preds_all, average='macro', zero_division=0)
+            'recall':    recall_score(trues_all, preds_all, average='macro', zero_division=0),
+            'f1':        f1_score(trues_all, preds_all, average='macro', zero_division=0)
         }
-        return {'metrics_history': metrics_history, 'summary': summary}
+
+        cm = confusion_matrix(trues_all, preds_all)
+
+        return {
+            'metrics_history':    metrics_history,
+            'summary':            summary,
+            'confusion_matrix':   cm
+        }
 
     def predict(
         self,

@@ -11,5 +11,15 @@ venv2/
 /Data
 Data/
 
+worker_data/
+/worker_data
+/Saved_experimented_data
+/Saved_experimend_data
+Saved_experimented_data/
+Saved_experimend_data/
+/results
+results/
+ray_tune_storage/
+
 # Cache files
 _pycache_

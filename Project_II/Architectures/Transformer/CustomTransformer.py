@@ -4,7 +4,12 @@ import torch.optim as optim
 from typing import Any, Dict, Tuple, List, Type, Optional
 
 from tqdm import tqdm
-from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.metrics import (
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix
+)
 
 from ..AbstractModel import BaseModel
 from DataObjects.DataLoader import DataLoader
@@ -101,11 +106,12 @@ class CustomTransformerModel(BaseModel, nn.Module):
                 print(f"Epoch {epoch}/{epochs} - val   loss: {val_loss:.4f} - val   accuracy: {val_acc:.4f}")
 
     def evaluate(
-        self,
-        eval_loader: DataLoader
-    ) -> Dict[str, Any]:
+    self,
+    eval_loader: DataLoader
+) -> Dict[str, Any]:
         criterion = nn.CrossEntropyLoss()
         self.train(False)
+
         metrics_history: List[Dict[str, float]] = []
         preds_all: List[int] = []
         trues_all: List[int] = []
@@ -115,27 +121,33 @@ class CustomTransformerModel(BaseModel, nn.Module):
         for batch in tqdm(eval_loader, total=len(eval_loader), desc="Evaluating"):
             x = batch.data.to(self.device)
             y = batch.labels.to(self.device)
+
+            # forward
             x_seq = self._prepare_sequence(x)
             x_emb = self.input_proj(x_seq)
-            z = self.transformer(x_emb)
-            z = z.mean(dim=0)
+            z     = self.transformer(x_emb)
+            z     = z.mean(dim=0)
             logits = self.classifier(z)
 
+            # loss & preds
             loss_val = criterion(logits, y).item()
-            preds = logits.argmax(dim=1)
+            preds    = logits.argmax(dim=1)
 
-            batch_size = y.size(0)
-            total_loss += loss_val * batch_size
+            # accumulate
+            batch_size   = y.size(0)
+            total_loss  += loss_val * batch_size
             total_samples += batch_size
+
             preds_np = preds.cpu().numpy()
-            y_np = y.cpu().numpy()
+            y_np     = y.cpu().numpy()
             preds_all.extend(preds_np.tolist())
             trues_all.extend(y_np.tolist())
 
+            # per‐batch metrics
             acc = (preds_np == y_np).mean()
-            pr = precision_score(y_np, preds_np, average='macro', zero_division=0)
-            rc = recall_score(y_np, preds_np, average='macro', zero_division=0)
-            f1 = f1_score(y_np, preds_np, average='macro', zero_division=0)
+            pr  = precision_score(y_np, preds_np, average='macro', zero_division=0)
+            rc  = recall_score(y_np, preds_np, average='macro', zero_division=0)
+            f1  = f1_score(y_np, preds_np, average='macro', zero_division=0)
             metrics_history.append({
                 'loss': loss_val,
                 'accuracy': acc,
@@ -144,19 +156,27 @@ class CustomTransformerModel(BaseModel, nn.Module):
                 'f1': f1
             })
 
-        avg_loss = total_loss / total_samples
-        accuracy = (torch.tensor(preds_all) == torch.tensor(trues_all)).float().mean().item()
+        # overall summary
+        avg_loss  = total_loss / total_samples
+        accuracy  = (torch.tensor(preds_all) == torch.tensor(trues_all)).float().mean().item()
         precision = precision_score(trues_all, preds_all, average='macro', zero_division=0)
-        recall = recall_score(trues_all, preds_all, average='macro', zero_division=0)
-        f1 = f1_score(trues_all, preds_all, average='macro', zero_division=0)
+        recall    = recall_score(trues_all, preds_all, average='macro', zero_division=0)
+        f1_score_ = f1_score(trues_all, preds_all, average='macro', zero_division=0)
         summary = {
-            'loss': avg_loss,
-            'accuracy': accuracy,
+            'loss':      avg_loss,
+            'accuracy':  accuracy,
             'precision': precision,
-            'recall': recall,
-            'f1': f1
+            'recall':    recall,
+            'f1':        f1_score_
         }
-        return {'metrics_history': metrics_history, 'summary': summary}
+
+        cm = confusion_matrix(trues_all, preds_all)
+
+        return {
+            'metrics_history':  metrics_history,
+            'summary':          summary,
+            'confusion_matrix': cm
+        }
 
     def predict(
         self,
