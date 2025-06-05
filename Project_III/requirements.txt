@@ -1,0 +1,11 @@
+--index-url https://download.pytorch.org/whl/cu126
+
+torch
+torchvision
+torchaudio
+
+kaggle==1.7.4.5
+kagglehub==0.3.12
+pillow==11.2.1
+diffusers==0.33.1
+accelerate==1.7.0
