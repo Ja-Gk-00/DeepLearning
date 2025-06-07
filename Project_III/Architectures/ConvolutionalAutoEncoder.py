@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from typing import Any, Dict, Optional, Tuple
 from DataObjects import DataLoader
 from ArchitectureModel import GeneratorBase
+from torchvision.utils import save_image
+import os
 
 
 class ConvAutoEncoder(GeneratorBase, nn.Module):
@@ -251,6 +253,27 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
         """Move all modules to the specified device"""
         self.to(self.device)
 
+    def save_generated_images(self, images: torch.Tensor, folder_path: str, prefix: str = "generated_image", normalize: bool = True) -> None:
+        """
+        Saves a batch of generated images as individual PNG files.
+
+        Args:
+            images: A batch of images (tensor of shape [N, C, H, W]) to save.
+                    The pixel values are expected to be in the range [-1, 1] due to Tanh activation.
+            folder_path: The directory where images will be saved. Will be created if it doesn't exist.
+            prefix: A prefix for the filenames of the saved images (e.g., "generated_image_0.png").
+            normalize: If True, pixel values are normalized to [0, 1] before saving. Set to False if your
+                       output is already in [0, 1] or [0, 255].
+        """
+        os.makedirs(folder_path, exist_ok=True)
+        for i, img in enumerate(images):
+            # Denormalize from [-1, 1] to [0, 1] for saving if normalize is True
+            if normalize:
+                img = (img + 1) / 2
+            filepath = os.path.join(folder_path, f"{prefix}_{i:04d}.png")
+            save_image(img.cpu(), filepath)
+        print(f"Saved {len(images)} generated images to {folder_path}")
+
 
 # Example usage:
 if __name__ == "__main__":
@@ -284,3 +307,11 @@ if __name__ == "__main__":
     # Evaluation
     eval_metrics = autoencoder.evaluate(dummy_input)
     print("Evaluation metrics:", eval_metrics)
+
+    # --- New functionality: Saving generated images ---
+    output_dir = "generated_images_cae"
+    autoencoder.save_generated_images(generated, output_dir, prefix="my_generated_image")
+
+    # You can also save reconstructed images
+    reconstructed_output_dir = "reconstructed_images_cae"
+    autoencoder.save_generated_images(reconstructed, reconstructed_output_dir, prefix="reconstructed_image")
