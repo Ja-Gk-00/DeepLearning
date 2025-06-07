@@ -304,7 +304,7 @@ if __name__ == "__main__":
     project_root = os.path.dirname(current_script_dir)
 
     input_directory = os.path.join(project_root, 'data', 'transformed')
-    output_directory = os.path.join(project_root, 'data', 'downscaled')
+    output_directory = os.path.join(project_root, 'data', 'downscaled', 'cats')
 
     # Downscale to different folder (preserves original files)
     downscaler = ImageDownscaler(input_directory, output_directory)

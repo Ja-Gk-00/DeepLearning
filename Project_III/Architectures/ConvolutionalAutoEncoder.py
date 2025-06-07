@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from typing import Any, Dict, Optional, Tuple
 from DataObjects import DataLoader
-from ArchitectureModel import GeneratorBase
+from Architectures.ArchitectureModel import GeneratorBase
 from torchvision.utils import save_image
 import os
 
@@ -31,6 +31,7 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
         GeneratorBase.__init__(self, device)
         nn.Module.__init__(self)
 
+        self.device = device  # Store device first
         self.input_channels = input_channels
         self.latent_dim = latent_dim
         self.base_channels = base_channels
@@ -42,6 +43,10 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
 
         self.build_model()
         self._move_to_device()
+
+        # Debug: Print device status after initialization
+        print(f"Model initialized on device: {self.device}")
+        print(f"First conv layer device: {next(self.encoder.parameters()).device}")
 
     def _calculate_conv_output_size(self) -> int:
         """Calculate the flattened size after encoder convolutions"""
@@ -100,8 +105,18 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
             nn.Tanh()  # Output in range [-1, 1]
         )
 
+    def _ensure_device_compatibility(self, x: torch.Tensor) -> torch.Tensor:
+        """Ensure input tensor is on the same device as the model"""
+        model_device = next(self.parameters()).device
+        if x.device != model_device:
+            x = x.to(model_device)
+        return x
+
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Encode input to latent space"""
+        # Ensure input is on correct device
+        x = self._ensure_device_compatibility(x)
+
         batch_size = x.size(0)
         x = self.encoder(x)
         x = x.view(batch_size, -1)  # Flatten
@@ -110,6 +125,9 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """Decode latent vector to image"""
+        # Ensure input is on correct device
+        z = self._ensure_device_compatibility(z)
+
         batch_size = z.size(0)
         x = self.decoder_fc(z)
         # Reshape back to feature map
@@ -120,6 +138,18 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the autoencoder"""
+        # Ensure input is on correct device
+        x = self._ensure_device_compatibility(x)
+
+        # Resize input if necessary (like DiffusionModel)
+        if x.shape[-2:] != (self.image_size, self.image_size):
+            x = torch.nn.functional.interpolate(
+                x,
+                size=(self.image_size, self.image_size),
+                mode="bilinear",
+                align_corners=False
+            )
+
         latent = self.encode(x)
         reconstructed = self.decode(latent)
         return reconstructed
@@ -140,57 +170,80 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
         """Perform one training step"""
         self.train()
 
+        # Ensure batch is on correct device
+        batch = self._ensure_device_compatibility(batch)
+
+        # Resize input if necessary (like DiffusionModel)
+        if batch.shape[-2:] != (self.image_size, self.image_size):
+            batch = torch.nn.functional.interpolate(
+                batch,
+                size=(self.image_size, self.image_size),
+                mode="bilinear",
+                align_corners=False
+            )
+
         # Forward pass
         reconstructed = self.forward(batch)
 
         # Compute reconstruction loss (MSE)
         recon_loss = F.mse_loss(reconstructed, batch, reduction='mean')
 
-        # Backward pass
-        self.optimizer.zero_grad()
-        recon_loss.backward()
-        self.optimizer.step()
-
         return {
-            'reconstruction_loss': recon_loss.detach(),
-            'total_loss': recon_loss.detach()
+            'loss': recon_loss,  # Changed key to match DiffusionModel
+            'reconstruction_loss': recon_loss,
+            'total_loss': recon_loss
         }
 
-    def train_architecture(self, data: DataLoader) -> None:
-        """Train the autoencoder on the provided data"""
-        self.train()
+    def train_architecture(self, dataloader: DataLoader, epochs: int) -> None:
+        """Train the autoencoder on the provided data - Compatible with DiffusionModel style"""
+        optimizer = self.configure_optimizers()
 
-        for epoch in range(self.num_epochs):
+        for epoch in range(epochs):
             epoch_losses = []
 
-            for batch_idx, batch in enumerate(data):
-                # Move batch to device
-                if isinstance(batch, (list, tuple)):
-                    batch = batch[0]  # Assume first element is the data
-                batch = batch.to(self.device)
+            for batch_idx, batch_obj in enumerate(dataloader):
+                # Extract images from the DataLoader format: [(img, _), (img, _), ...]
+                # Same as DiffusionModel approach
+                imgs = torch.stack([img for img, _ in batch_obj])
+                # Ensure images are moved to correct device
+                imgs = self._ensure_device_compatibility(imgs)
 
                 # Training step
-                losses = self.train_step(batch)
-                epoch_losses.append(losses['total_loss'].item())
+                losses = self.train_step(imgs)
+
+                # Backward pass
+                optimizer.zero_grad()
+                losses['loss'].backward()
+                optimizer.step()
+
+                epoch_losses.append(losses['loss'].item())
 
                 # Log progress
                 if batch_idx % 100 == 0:
-                    print(f'Epoch [{epoch + 1}/{self.num_epochs}], '
-                          f'Batch [{batch_idx}/{len(data)}], '
-                          f'Loss: {losses["total_loss"].item():.4f}')
+                    print(f'Epoch [{epoch + 1}/{epochs}], '
+                          f'Batch [{batch_idx}/{len(dataloader)}], '
+                          f'Loss: {losses["loss"].item():.4f}')
 
             avg_loss = sum(epoch_losses) / len(epoch_losses)
-            print(f'Epoch [{epoch + 1}/{self.num_epochs}] completed, '
+            print(f'Epoch [{epoch + 1}/{epochs}] completed, '
                   f'Average Loss: {avg_loss:.4f}')
-
-            # Step scheduler if available
-            if hasattr(self, 'scheduler') and self.scheduler is not None:
-                self.scheduler.step()
 
     def evaluate(self, batch: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Evaluate the model on a batch"""
         self.eval()
         with torch.no_grad():
+            # Ensure batch is on correct device
+            batch = self._ensure_device_compatibility(batch)
+
+            # Resize input if necessary
+            if batch.shape[-2:] != (self.image_size, self.image_size):
+                batch = torch.nn.functional.interpolate(
+                    batch,
+                    size=(self.image_size, self.image_size),
+                    mode="bilinear",
+                    align_corners=False
+                )
+
             reconstructed = self.forward(batch)
 
             # Reconstruction loss
@@ -204,56 +257,61 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
             psnr = 20 * torch.log10(2.0 / torch.sqrt(mse + 1e-8))  # Assuming inputs in [-1,1]
 
         return {
+            'loss': recon_loss,  # Added to match DiffusionModel
             'reconstruction_loss': recon_loss,
             'mae': mae,
             'psnr': psnr
         }
 
     def configure_optimizers(self) -> Any:
-        """Configure optimizer and scheduler"""
-        self.optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=30, gamma=0.1)
-        self.num_epochs = 100  # Default number of epochs
-
-        return {
-            'optimizer': self.optimizer,
-            'scheduler': self.scheduler
-        }
+        """Configure optimizer - simplified like DiffusionModel"""
+        return optim.Adam(self.parameters(), lr=self.learning_rate)
 
     def save_model(self, path: str) -> None:
-        """Save model state dictionary"""
-        torch.save({
-            'model_state_dict': self.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict() if hasattr(self, 'optimizer') else None,
-            'scheduler_state_dict': self.scheduler.state_dict() if hasattr(self, 'scheduler') else None,
-            'config': {
-                'input_channels': self.input_channels,
-                'latent_dim': self.latent_dim,
-                'base_channels': self.base_channels,
-                'image_size': self.image_size,
-                'learning_rate': self.learning_rate
-            }
-        }, path)
+        """Save model state dictionary - simplified like DiffusionModel"""
+        torch.save(self.state_dict(), path)
         print(f"Model saved to {path}")
 
     def load_model(self, path: str, map_location: Optional[str] = None) -> None:
-        """Load model state dictionary"""
-        checkpoint = torch.load(path, map_location=map_location)
-        self.load_state_dict(checkpoint['model_state_dict'])
+        """Load model state dictionary - simplified like DiffusionModel"""
+        # If no map_location specified and we have a device, use it
+        if map_location is None:
+            map_location = self.device
 
-        if hasattr(self, 'optimizer') and checkpoint['optimizer_state_dict'] is not None:
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        state_dict = torch.load(path, map_location=map_location)
+        self.load_state_dict(state_dict)
 
-        if hasattr(self, 'scheduler') and checkpoint['scheduler_state_dict'] is not None:
-            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-
-        print(f"Model loaded from {path}")
+        # Ensure model is on correct device after loading
+        self._move_to_device()
+        print(f"Model loaded from {path} and moved to {self.device}")
 
     def _move_to_device(self) -> None:
         """Move all modules to the specified device"""
         self.to(self.device)
 
-    def save_generated_images(self, images: torch.Tensor, folder_path: str, prefix: str = "generated_image", normalize: bool = True) -> None:
+    def to(self, device: torch.device) -> 'ConvAutoEncoder':
+        """Override to method to update internal device reference"""
+        self.device = device
+        super().to(device)
+        return self
+
+    def cuda(self, device: Optional[int] = None) -> 'ConvAutoEncoder':
+        """Override cuda method to update internal device reference"""
+        if device is None:
+            self.device = torch.device('cuda')
+        else:
+            self.device = torch.device(f'cuda:{device}')
+        super().cuda(device)
+        return self
+
+    def cpu(self) -> 'ConvAutoEncoder':
+        """Override cpu method to update internal device reference"""
+        self.device = torch.device('cpu')
+        super().cpu()
+        return self
+
+    def save_generated_images(self, images: torch.Tensor, folder_path: str, prefix: str = "generated_image",
+                              normalize: bool = True) -> None:
         """
         Saves a batch of generated images as individual PNG files.
 
@@ -274,12 +332,22 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
             save_image(img.cpu(), filepath)
         print(f"Saved {len(images)} generated images to {folder_path}")
 
+    @classmethod
+    def from_pretrained(cls, device: torch.device, **kwargs) -> "ConvAutoEncoder":
+        """Create and initialize model - following DiffusionModel pattern"""
+        model = cls(device, **kwargs)
+        # Ensure model is definitely on the correct device
+        model.to(device)
+        print(f"Model moved to device: {device}")
+        print(f"Model parameters on device: {next(model.parameters()).device}")
+        return model
+
 
 # Example usage:
 if __name__ == "__main__":
-    # Initialize the autoencoder
+    # Initialize the autoencoder - using from_pretrained like DiffusionModel
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    autoencoder = ConvAutoEncoder(
+    autoencoder = ConvAutoEncoder.from_pretrained(
         device=device,
         input_channels=3,  # RGB images
         latent_dim=128,
@@ -287,9 +355,6 @@ if __name__ == "__main__":
         image_size=64,
         learning_rate=1e-3
     )
-
-    # Configure optimizers
-    autoencoder.configure_optimizers()
 
     # Example forward pass
     batch_size = 8
