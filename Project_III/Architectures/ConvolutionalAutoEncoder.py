@@ -9,16 +9,17 @@ from torchvision.utils import save_image
 import os
 
 
-class ConvAutoEncoder(GeneratorBase, nn.Module):
+class ConvVAE(GeneratorBase, nn.Module):
     def __init__(self,
                  device: torch.device,
                  input_channels: int = 3,
-                 latent_dim: int = 128,
+                 latent_dim: int = 96,
                  base_channels: int = 64,
                  image_size: int = 64,
-                 learning_rate: float = 1e-3):
+                 learning_rate: float = 2e-4,
+                 beta: float = 1.0):
         """
-        Convolutional Autoencoder implementation
+        Convolutional Variational Autoencoder implementation for cat image generation
 
         Args:
             device: torch device for computation
@@ -27,16 +28,18 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
             base_channels: base number of channels for conv layers
             image_size: size of input images (assumed square)
             learning_rate: learning rate for optimizer
+            beta: weight for KL divergence loss (beta-VAE)
         """
         GeneratorBase.__init__(self, device)
         nn.Module.__init__(self)
 
-        self.device = device  # Store device first
+        self.device = device
         self.input_channels = input_channels
         self.latent_dim = latent_dim
         self.base_channels = base_channels
         self.image_size = image_size
         self.learning_rate = learning_rate
+        self.beta = beta  # Beta parameter for beta-VAE
 
         # Calculate the size after convolutions for the linear layer
         self.conv_output_size = self._calculate_conv_output_size()
@@ -45,7 +48,7 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
         self._move_to_device()
 
         # Debug: Print device status after initialization
-        print(f"Model initialized on device: {self.device}")
+        print(f"VAE initialized on device: {self.device}")
         print(f"First conv layer device: {next(self.encoder.parameters()).device}")
 
     def _calculate_conv_output_size(self) -> int:
@@ -55,8 +58,8 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
         return self.base_channels * 8 * reduced_size * reduced_size
 
     def build_model(self) -> None:
-        """Initialize encoder and decoder networks"""
-        # Encoder
+        """Initialize encoder and decoder networks with VAE structure"""
+        # Encoder (same as before)
         self.encoder = nn.Sequential(
             # Layer 1: input_channels -> base_channels
             nn.Conv2d(self.input_channels, self.base_channels, 4, 2, 1),
@@ -79,11 +82,12 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
             nn.ReLU(inplace=True),
         )
 
-        # Latent space projection
-        self.encoder_fc = nn.Linear(self.conv_output_size, self.latent_dim)
+        # VAE latent space projection - separate mu and logvar
+        self.fc_mu = nn.Linear(self.conv_output_size, self.latent_dim)
+        self.fc_logvar = nn.Linear(self.conv_output_size, self.latent_dim)
         self.decoder_fc = nn.Linear(self.latent_dim, self.conv_output_size)
 
-        # Decoder
+        # Decoder (same as before)
         self.decoder = nn.Sequential(
             # Layer 1: base_channels*8 -> base_channels*4
             nn.ConvTranspose2d(self.base_channels * 8, self.base_channels * 4, 4, 2, 1),
@@ -112,16 +116,30 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
             x = x.to(model_device)
         return x
 
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
-        """Encode input to latent space"""
+    def encode(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Encode input to latent space parameters (mu, logvar)"""
         # Ensure input is on correct device
         x = self._ensure_device_compatibility(x)
 
         batch_size = x.size(0)
         x = self.encoder(x)
         x = x.view(batch_size, -1)  # Flatten
-        x = self.encoder_fc(x)
-        return x
+
+        # Get mean and log variance
+        mu = self.fc_mu(x)
+        logvar = self.fc_logvar(x)
+
+        return mu, logvar
+
+    def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        """Reparameterization trick: z = mu + std * epsilon"""
+        if self.training:
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+            return mu + eps * std
+        else:
+            # During inference, use the mean
+            return mu
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """Decode latent vector to image"""
@@ -136,12 +154,12 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
         x = self.decoder(x)
         return x
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the autoencoder"""
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Forward pass through the VAE"""
         # Ensure input is on correct device
         x = self._ensure_device_compatibility(x)
 
-        # Resize input if necessary (like DiffusionModel)
+        # Resize input if necessary
         if x.shape[-2:] != (self.image_size, self.image_size):
             x = torch.nn.functional.interpolate(
                 x,
@@ -150,30 +168,56 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
                 align_corners=False
             )
 
-        latent = self.encode(x)
-        reconstructed = self.decode(latent)
-        return reconstructed
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        reconstructed = self.decode(z)
 
-    def sample_latent(self, num_samples: int) -> torch.Tensor:
-        """Sample random latent vectors from standard normal distribution"""
-        return torch.randn(num_samples, self.latent_dim, device=self.device)
+        return reconstructed, mu, logvar
 
-    def generate(self, num_samples: int, **kwargs: Any) -> torch.Tensor:
+    def sample_latent(self, num_samples: int, temperature: float = 1.0) -> torch.Tensor:
+        """Sample latent vectors from standard normal distribution"""
+        return torch.randn(num_samples, self.latent_dim, device=self.device) * temperature
+
+    def generate(self, num_samples: int, temperature: float = 1.0, **kwargs: Any) -> torch.Tensor:
         """Generate images from random latent vectors"""
         self.eval()
         with torch.no_grad():
-            latent = self.sample_latent(num_samples)
+            latent = self.sample_latent(num_samples, temperature)
             generated = self.decode(latent)
         return generated
 
+    def interpolate(self, x1: torch.Tensor, x2: torch.Tensor, num_steps: int = 10) -> torch.Tensor:
+        """Interpolate between two images in latent space"""
+        self.eval()
+        with torch.no_grad():
+            # Encode both images
+            mu1, _ = self.encode(x1)
+            mu2, _ = self.encode(x2)
+
+            # Create interpolation steps
+            alphas = torch.linspace(0, 1, num_steps, device=self.device).view(-1, 1)
+            interpolated_z = mu1 * (1 - alphas) + mu2 * alphas
+
+            # Decode interpolated latent vectors
+            interpolated_images = self.decode(interpolated_z)
+
+        return interpolated_images
+
+    def kl_divergence(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        """Compute KL divergence between latent distribution and standard normal"""
+        # KL(q(z|x) || p(z)) where p(z) = N(0, I)
+        # KL = -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
+        kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
+        return kl.mean()
+
     def train_step(self, batch: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """Perform one training step"""
+        """Perform one training step with VAE loss"""
         self.train()
 
         # Ensure batch is on correct device
         batch = self._ensure_device_compatibility(batch)
 
-        # Resize input if necessary (like DiffusionModel)
+        # Resize input if necessary
         if batch.shape[-2:] != (self.image_size, self.image_size):
             batch = torch.nn.functional.interpolate(
                 batch,
@@ -183,29 +227,35 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
             )
 
         # Forward pass
-        reconstructed = self.forward(batch)
+        reconstructed, mu, logvar = self.forward(batch)
 
-        # Compute reconstruction loss (MSE)
+        # Compute losses
+        # Reconstruction loss (MSE or BCE)
         recon_loss = F.mse_loss(reconstructed, batch, reduction='mean')
 
+        # KL divergence loss
+        kl_loss = self.kl_divergence(mu, logvar)
+
+        # Total VAE loss
+        total_loss = recon_loss + self.beta * kl_loss
+
         return {
-            'loss': recon_loss,  # Changed key to match DiffusionModel
+            'loss': total_loss,  # Main loss for backward pass
             'reconstruction_loss': recon_loss,
-            'total_loss': recon_loss
+            'kl_loss': kl_loss,
+            'total_loss': total_loss
         }
 
     def train_architecture(self, dataloader: DataLoader, epochs: int) -> None:
-        """Train the autoencoder on the provided data - Compatible with DiffusionModel style"""
+        """Train the VAE on the provided data"""
         optimizer = self.configure_optimizers()
 
         for epoch in range(epochs):
-            epoch_losses = []
+            epoch_losses = {'total': [], 'recon': [], 'kl': []}
 
             for batch_idx, batch_obj in enumerate(dataloader):
-                # Extract images from the DataLoader format: [(img, _), (img, _), ...]
-                # Same as DiffusionModel approach
+                # Extract images from the DataLoader format
                 imgs = torch.stack([img for img, _ in batch_obj])
-                # Ensure images are moved to correct device
                 imgs = self._ensure_device_compatibility(imgs)
 
                 # Training step
@@ -216,17 +266,28 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
                 losses['loss'].backward()
                 optimizer.step()
 
-                epoch_losses.append(losses['loss'].item())
+                # Store losses
+                epoch_losses['total'].append(losses['total_loss'].item())
+                epoch_losses['recon'].append(losses['reconstruction_loss'].item())
+                epoch_losses['kl'].append(losses['kl_loss'].item())
 
                 # Log progress
                 if batch_idx % 100 == 0:
                     print(f'Epoch [{epoch + 1}/{epochs}], '
                           f'Batch [{batch_idx}/{len(dataloader)}], '
-                          f'Loss: {losses["loss"].item():.4f}')
+                          f'Total Loss: {losses["total_loss"].item():.4f}, '
+                          f'Recon Loss: {losses["reconstruction_loss"].item():.4f}, '
+                          f'KL Loss: {losses["kl_loss"].item():.4f}')
 
-            avg_loss = sum(epoch_losses) / len(epoch_losses)
+            # Epoch summary
+            avg_total = sum(epoch_losses['total']) / len(epoch_losses['total'])
+            avg_recon = sum(epoch_losses['recon']) / len(epoch_losses['recon'])
+            avg_kl = sum(epoch_losses['kl']) / len(epoch_losses['kl'])
+
             print(f'Epoch [{epoch + 1}/{epochs}] completed, '
-                  f'Average Loss: {avg_loss:.4f}')
+                  f'Avg Total Loss: {avg_total:.4f}, '
+                  f'Avg Recon Loss: {avg_recon:.4f}, '
+                  f'Avg KL Loss: {avg_kl:.4f}')
 
     def evaluate(self, batch: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Evaluate the model on a batch"""
@@ -244,58 +305,79 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
                     align_corners=False
                 )
 
-            reconstructed = self.forward(batch)
+            reconstructed, mu, logvar = self.forward(batch)
 
-            # Reconstruction loss
+            # Compute losses
             recon_loss = F.mse_loss(reconstructed, batch, reduction='mean')
+            kl_loss = self.kl_divergence(mu, logvar)
+            total_loss = recon_loss + self.beta * kl_loss
 
-            # Mean Absolute Error
+            # Additional metrics
             mae = F.l1_loss(reconstructed, batch, reduction='mean')
-
-            # Peak Signal-to-Noise Ratio (approximate)
             mse = recon_loss
-            psnr = 20 * torch.log10(2.0 / torch.sqrt(mse + 1e-8))  # Assuming inputs in [-1,1]
+            psnr = 20 * torch.log10(2.0 / torch.sqrt(mse + 1e-8))
 
         return {
-            'loss': recon_loss,  # Added to match DiffusionModel
+            'loss': total_loss,
             'reconstruction_loss': recon_loss,
+            'kl_loss': kl_loss,
+            'total_loss': total_loss,
             'mae': mae,
             'psnr': psnr
         }
 
     def configure_optimizers(self) -> Any:
-        """Configure optimizer - simplified like DiffusionModel"""
+        """Configure optimizer"""
         return optim.Adam(self.parameters(), lr=self.learning_rate)
 
     def save_model(self, path: str) -> None:
-        """Save model state dictionary - simplified like DiffusionModel"""
-        torch.save(self.state_dict(), path)
-        print(f"Model saved to {path}")
+        """Save model state dictionary"""
+        torch.save({
+            'state_dict': self.state_dict(),
+            'latent_dim': self.latent_dim,
+            'base_channels': self.base_channels,
+            'image_size': self.image_size,
+            'input_channels': self.input_channels,
+            'beta': self.beta
+        }, path)
+        print(f"VAE model saved to {path}")
 
     def load_model(self, path: str, map_location: Optional[str] = None) -> None:
-        """Load model state dictionary - simplified like DiffusionModel"""
-        # If no map_location specified and we have a device, use it
+        """Load model state dictionary"""
         if map_location is None:
             map_location = self.device
 
-        state_dict = torch.load(path, map_location=map_location)
+        checkpoint = torch.load(path, map_location=map_location)
+
+        # Load hyperparameters if available
+        if 'latent_dim' in checkpoint:
+            self.latent_dim = checkpoint['latent_dim']
+            self.base_channels = checkpoint['base_channels']
+            self.image_size = checkpoint['image_size']
+            self.input_channels = checkpoint['input_channels']
+            self.beta = checkpoint.get('beta', 1.0)
+
+            # Rebuild model with loaded parameters
+            self.build_model()
+
+        # Load state dict
+        state_dict = checkpoint.get('state_dict', checkpoint)
         self.load_state_dict(state_dict)
 
-        # Ensure model is on correct device after loading
         self._move_to_device()
-        print(f"Model loaded from {path} and moved to {self.device}")
+        print(f"VAE model loaded from {path} and moved to {self.device}")
 
     def _move_to_device(self) -> None:
         """Move all modules to the specified device"""
         self.to(self.device)
 
-    def to(self, device: torch.device) -> 'ConvAutoEncoder':
+    def to(self, device: torch.device) -> 'ConvVAE':
         """Override to method to update internal device reference"""
         self.device = device
         super().to(device)
         return self
 
-    def cuda(self, device: Optional[int] = None) -> 'ConvAutoEncoder':
+    def cuda(self, device: Optional[int] = None) -> 'ConvVAE':
         """Override cuda method to update internal device reference"""
         if device is None:
             self.device = torch.device('cuda')
@@ -304,7 +386,7 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
         super().cuda(device)
         return self
 
-    def cpu(self) -> 'ConvAutoEncoder':
+    def cpu(self) -> 'ConvVAE':
         """Override cpu method to update internal device reference"""
         self.device = torch.device('cpu')
         super().cpu()
@@ -312,20 +394,9 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
 
     def save_generated_images(self, images: torch.Tensor, folder_path: str, prefix: str = "generated_image",
                               normalize: bool = True) -> None:
-        """
-        Saves a batch of generated images as individual PNG files.
-
-        Args:
-            images: A batch of images (tensor of shape [N, C, H, W]) to save.
-                    The pixel values are expected to be in the range [-1, 1] due to Tanh activation.
-            folder_path: The directory where images will be saved. Will be created if it doesn't exist.
-            prefix: A prefix for the filenames of the saved images (e.g., "generated_image_0.png").
-            normalize: If True, pixel values are normalized to [0, 1] before saving. Set to False if your
-                       output is already in [0, 1] or [0, 255].
-        """
+        """Save a batch of generated images as individual PNG files"""
         os.makedirs(folder_path, exist_ok=True)
         for i, img in enumerate(images):
-            # Denormalize from [-1, 1] to [0, 1] for saving if normalize is True
             if normalize:
                 img = (img + 1) / 2
             filepath = os.path.join(folder_path, f"{prefix}_{i:04d}.png")
@@ -333,27 +404,27 @@ class ConvAutoEncoder(GeneratorBase, nn.Module):
         print(f"Saved {len(images)} generated images to {folder_path}")
 
     @classmethod
-    def from_pretrained(cls, device: torch.device, **kwargs) -> "ConvAutoEncoder":
-        """Create and initialize model - following DiffusionModel pattern"""
+    def from_pretrained(cls, device: torch.device, **kwargs) -> "ConvVAE":
+        """Create and initialize VAE model"""
         model = cls(device, **kwargs)
-        # Ensure model is definitely on the correct device
         model.to(device)
-        print(f"Model moved to device: {device}")
-        print(f"Model parameters on device: {next(model.parameters()).device}")
+        print(f"VAE model moved to device: {device}")
+        print(f"VAE model parameters on device: {next(model.parameters()).device}")
         return model
 
 
 # Example usage:
 if __name__ == "__main__":
-    # Initialize the autoencoder - using from_pretrained like DiffusionModel
+    # Initialize the VAE
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    autoencoder = ConvAutoEncoder.from_pretrained(
+    vae = ConvVAE.from_pretrained(
         device=device,
         input_channels=3,  # RGB images
         latent_dim=128,
         base_channels=64,
         image_size=64,
-        learning_rate=1e-3
+        learning_rate=1e-3,
+        beta=1.0  # Standard VAE, increase for beta-VAE
     )
 
     # Example forward pass
@@ -361,22 +432,33 @@ if __name__ == "__main__":
     dummy_input = torch.randn(batch_size, 3, 64, 64).to(device)
 
     # Reconstruction
-    reconstructed = autoencoder(dummy_input)
+    reconstructed, mu, logvar = vae(dummy_input)
     print(f"Input shape: {dummy_input.shape}")
     print(f"Reconstructed shape: {reconstructed.shape}")
+    print(f"Latent mu shape: {mu.shape}")
+    print(f"Latent logvar shape: {logvar.shape}")
 
-    # Generation
-    generated = autoencoder.generate(num_samples=4)
-    print(f"Generated shape: {generated.shape}")
+    # Generation with different temperatures
+    generated_normal = vae.generate(num_samples=4, temperature=1.0)
+    generated_creative = vae.generate(num_samples=4, temperature=1.5)  # More diverse
+    generated_conservative = vae.generate(num_samples=4, temperature=0.8)  # More conservative
+
+    print(f"Generated normal shape: {generated_normal.shape}")
+    print(f"Generated creative shape: {generated_creative.shape}")
+    print(f"Generated conservative shape: {generated_conservative.shape}")
+
+    # Interpolation between two images
+    interpolated = vae.interpolate(dummy_input[:1], dummy_input[1:2], num_steps=10)
+    print(f"Interpolated shape: {interpolated.shape}")
 
     # Evaluation
-    eval_metrics = autoencoder.evaluate(dummy_input)
-    print("Evaluation metrics:", eval_metrics)
+    eval_metrics = vae.evaluate(dummy_input)
+    print("Evaluation metrics:", {k: v.item() if hasattr(v, 'item') else v for k, v in eval_metrics.items()})
 
-    # --- New functionality: Saving generated images ---
-    output_dir = "generated_images_cae"
-    autoencoder.save_generated_images(generated, output_dir, prefix="my_generated_image")
+    # Save generated images
+    output_dir = "generated_images_vae"
+    vae.save_generated_images(generated_normal, output_dir, prefix="vae_generated")
 
-    # You can also save reconstructed images
-    reconstructed_output_dir = "reconstructed_images_cae"
-    autoencoder.save_generated_images(reconstructed, reconstructed_output_dir, prefix="reconstructed_image")
+    # Save interpolated images
+    interp_dir = "interpolated_images_vae"
+    vae.save_generated_images(interpolated, interp_dir, prefix="vae_interpolated")
