@@ -1,2 +1,0 @@
-Trained GMMs for classes: []
-Validation - loss: nan accuracy: nan precision: nan recall: nan f1: nan
