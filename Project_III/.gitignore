@@ -200,3 +200,7 @@ cython_debug/
 
 # Data
 Data/*
+
+# Models weights
+*.safetensors
+.safetensors

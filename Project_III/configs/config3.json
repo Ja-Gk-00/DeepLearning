@@ -1,0 +1,21 @@
+{
+  "image_size": 128,
+  "train_batch_size": 32,
+  "eval_batch_size": 16,
+  "num_epochs": 50,
+  "gradient_accumulation_steps": 1,
+  "learning_rate": 0.0001,
+  "lr_warmup_steps": 500,
+  "save_image_epochs": 20,
+  "save_model_epochs": 30,
+  "mixed_precision": "fp16",
+  "output_dir": "Unet_Logger_config_3",
+  "data_dir": "../Data/Raw/primary_data/cats/Data/",
+  "seed": 2137,
+  "fraction": 0.3,
+  "num_train_timesteps": 1000,
+  "beta_start": 0.0001,
+  "beta_end": 0.02,
+  "beta_schedule": "sigmoid",
+  "variance_type": "fixed_small"
+}

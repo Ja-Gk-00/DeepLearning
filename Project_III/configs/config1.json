@@ -1,0 +1,9 @@
+{
+  "image_size": 128,
+  "train_batch_size": 32,
+  "learning_rate": 4e-5,
+  "num_epochs": 25,
+  "mixed_precision": "fp16",
+  "output_dir": "Unet_Logger",
+  "data_dir": "../Data/Raw/dogs-vs-cats/train/"
+}
