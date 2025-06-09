@@ -18,7 +18,7 @@ class TrainingConfig:
     output_dir: str = 'Unet_Logger'
     data_dir: str = '../Data/Raw/primary_data/cats/Data/'
     seed: int = 2137
-    fraction = 0.1
+    fraction: float = 0.1
 
     # Pamameters for noise scheduler
     num_train_timesteps: int = 1000
