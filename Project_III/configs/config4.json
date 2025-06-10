@@ -12,7 +12,7 @@
   "output_dir": "Unet_Logger_config_4",
   "data_dir": "../Data/Raw/primary_data/cats/Data/",
   "seed": 2137,
-  "fraction": 0.3,
+  "fraction": 0.15,
   "num_train_timesteps": 1000,
   "beta_start": 0.0001,
   "beta_end": 0.02,

@@ -1,5 +1,5 @@
 {
-  "image_size": 128,
+  "image_size": 64,
   "train_batch_size": 64,
   "eval_batch_size": 16,
   "num_epochs": 75,
@@ -12,7 +12,7 @@
   "output_dir": "Unet_Logger_config_6",
   "data_dir": "../Data/Raw/primary_data/cats/Data/",
   "seed": 2137,
-  "fraction": 0.4,
+  "fraction": 0.5,
   "num_train_timesteps": 2000,
   "beta_start": 0.00005,
   "beta_end": 0.06,

@@ -204,3 +204,5 @@ Data/*
 # Models weights
 *.safetensors
 .safetensors
+
+Saved_Models/*
